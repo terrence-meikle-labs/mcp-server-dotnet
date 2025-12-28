@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Acme.McpServer.Security;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -15,5 +16,8 @@ builder.Services
     .AddMcpServer()
     .WithStdioServerTransport()
     .WithToolsFromAssembly(); // discovers tools via attributes in this assembly
+
+builder.Services
+    .AddSingleton<ICallerContextAccessor, DevCallerContextAccessor>();
 
 await builder.Build().RunAsync();
