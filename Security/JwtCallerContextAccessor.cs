@@ -34,17 +34,17 @@ public sealed class JwtCallerContextAccessor : ICallerContextAccessor
 
         var token = Environment.GetEnvironmentVariable(EnvVarName);
 
-        if (string.IsNullOrWhiteSpace(token))
-            throw new McpException("Unauthorized: missing bearer token.");
+        token = NormalizeBearerToken(token);
 
-        ClaimsPrincipal principal;
-        try
+        if (string.IsNullOrWhiteSpace(token))
+            throw new McpException($"Unauthorized: missing bearer token. Set env var '{EnvVarName}' to a JWT.");
+
+        ClaimsPrincipal? principal;
+
+        if (!_validator.TryValidate(token, out principal, out var error) || principal is null)
         {
-            principal = _validator.Validate(token);
-        }
-        catch
-        {
-            throw new McpException("Unauthorized: invalid bearer token.");
+            _logger.LogWarning("JWT validation failed. reason={Reason}", error);
+            throw new McpException($"Unauthorized: invalid bearer token ({error}).");
         }
 
         var userId =
@@ -76,11 +76,27 @@ public sealed class JwtCallerContextAccessor : ICallerContextAccessor
         return _cached;
     }
 
+    private static string? NormalizeBearerToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return token;
+
+        token = token.Trim();
+
+        // Common mistake: users paste an HTTP Authorization header value.
+        const string prefix = "Bearer ";
+        if (token.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            token = token[prefix.Length..].Trim();
+        }
+
+        return token;
+    }
+
 }
 
 internal static class ClaimsPrincipalExtensions
 {
-    public static string? FindFirstValue(this ClaimsPrincipal principal, string claimType)
+    public static string? FindFirstValue(this ClaimsPrincipal? principal, string claimType)
     {
         return principal?.FindFirst(claimType)?.Value;
     }

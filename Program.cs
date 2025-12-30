@@ -4,7 +4,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-var builder = Host.CreateApplicationBuilder(args);
+// Claude Desktop may launch this process with a working directory that is NOT the DLL directory.
+// Use the assembly base directory as content root so appsettings.json is found reliably.
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory
+});
 
 // IMPORTANT for STDIO: send logs to stderr, not stdout (stdout is reserved for JSON-RPC).
 builder.Logging.ClearProviders();
