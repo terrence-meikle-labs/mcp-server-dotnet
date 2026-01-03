@@ -15,24 +15,27 @@ public sealed class JwtCallerContextAccessor : ICallerContextAccessor
     private readonly JwtTokenValidator _validator;
     private readonly JwtOptions _options;
     private readonly ILogger<JwtCallerContextAccessor> _logger;
+    private readonly IBearerTokenAccessor _tokenAccessor;
 
     private CallerContext? _cached; // token is process-level in STDIO, so cache is OK
 
     public JwtCallerContextAccessor(
        JwtTokenValidator validator,
        IOptions<JwtOptions> options,
+       IBearerTokenAccessor tokenAccessor,
        ILogger<JwtCallerContextAccessor> logger)
     {
         _validator = validator;
         _options = options.Value;
         _logger = logger;
+        _tokenAccessor = tokenAccessor;
     }
 
     public CallerContext GetCurrent()
     {
         if (_cached is not null) return _cached;
 
-        var token = Environment.GetEnvironmentVariable(EnvVarName);
+        var token = _tokenAccessor.GetToken();
 
         token = NormalizeBearerToken(token);
 

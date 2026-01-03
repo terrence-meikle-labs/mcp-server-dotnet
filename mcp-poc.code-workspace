@@ -1,0 +1,8 @@
+{
+  "folders": [
+    { "path": "Acme.McpServer" },
+    { "path": "Acme.InternalApiStub" },
+    { "path": "Acme.JwtMint" },
+    { "path": "Acme.Contracts" }
+  ]
+}
