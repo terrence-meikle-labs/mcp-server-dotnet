@@ -1,47 +1,95 @@
 ﻿using Acme.McpServer.InternalApi;
 using Acme.McpServer.Security;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
-// Claude Desktop may launch this process with a working directory that is NOT the DLL directory.
-// Use the assembly base directory as content root so appsettings.json is found reliably.
-var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+var runHttp = args.Any(a => a.Equals("--http", StringComparison.OrdinalIgnoreCase));
+
+if (!runHttp)
 {
-    Args = args,
-    ContentRootPath = AppContext.BaseDirectory
-});
+    // -------------------------
+    // STDIO MODE (Claude Desktop local)
+    // -------------------------
+    var builder = Host.CreateApplicationBuilder(args);
 
-// IMPORTANT for STDIO: send logs to stderr, not stdout (stdout is reserved for JSON-RPC).
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole(o =>
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace); // stderr
+
+    // Options
+    builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+    builder.Services.Configure<InternalApiOptions>(builder.Configuration.GetSection("InternalApi"));
+
+    // Token source: env var for STDIO
+    builder.Services.AddSingleton<IBearerTokenAccessor, EnvBearerTokenAccessor>();
+
+    // Auth + caller context
+    builder.Services.AddSingleton<JwtTokenValidator>();
+    builder.Services.AddSingleton<ICallerContextAccessor, JwtCallerContextAccessor>();
+
+    // HttpClient to internal API
+    builder.Services.AddHttpClient<IInternalApiClient, InternalApiClient>((sp, http) =>
+    {
+        var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<InternalApiOptions>>().Value;
+        http.BaseAddress = new Uri(opts.BaseUrl);
+        http.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+    });
+
+    // MCP server over STDIO
+    builder.Services
+        .AddMcpServer()
+        .WithStdioServerTransport()
+        .WithToolsFromAssembly();
+
+    await builder.Build().RunAsync();
+}
+else
 {
-    o.LogToStandardErrorThreshold = LogLevel.Trace;
-});
+    // -------------------------
+    // HTTP MODE (local now, container/AKS later)
+    // -------------------------
+    var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.Configure<InternalApiOptions>(builder.Configuration.GetSection("InternalApi"));
-builder.Services.AddSingleton<IBearerTokenAccessor, EnvBearerTokenAccessor>();
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole(); // normal web logging is fine
 
-builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
-builder.Services.AddSingleton<JwtTokenValidator>();
+    // Options
+    builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+    builder.Services.Configure<InternalApiOptions>(builder.Configuration.GetSection("InternalApi"));
 
+    // Needed to read headers in services
+    builder.Services.AddHttpContextAccessor();
 
+    // Token source: Authorization header
+    builder.Services.AddSingleton<IBearerTokenAccessor, HttpHeaderBearerTokenAccessor>();
 
-//builder.Services
-//    .AddSingleton<ICallerContextAccessor, DevCallerContextAccessor>();
-builder.Services.AddSingleton<ICallerContextAccessor, JwtCallerContextAccessor>();
+    // Auth + caller context
+    builder.Services.AddSingleton<JwtTokenValidator>();
+    builder.Services.AddSingleton<ICallerContextAccessor, JwtCallerContextAccessor>();
 
-builder.Services.AddHttpClient<IInternalApiClient, InternalApiClient>((sp, http) =>
-{
-    var opts = sp.GetRequiredService<IOptions<InternalApiOptions>>().Value;
-    http.BaseAddress = new Uri(opts.BaseUrl);
-    http.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
-});
+    // HttpClient to internal API
+    builder.Services.AddHttpClient<IInternalApiClient, InternalApiClient>((sp, http) =>
+    {
+        var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<InternalApiOptions>>().Value;
+        http.BaseAddress = new Uri(opts.BaseUrl);
+        http.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+    });
 
-builder.Services
-    .AddMcpServer()
-    .WithStdioServerTransport()
-    .WithToolsFromAssembly(); // discovers tools via attributes in this assembly
+    // MCP server over HTTP
+    builder.Services
+        .AddMcpServer()
+        .WithHttpTransport()
+        .WithToolsFromAssembly();
 
-await builder.Build().RunAsync();
+    var app = builder.Build();
+
+    // Map MCP endpoint at /mcp
+    app.MapMcp("/mcp");
+
+    // Optional: health endpoint (useful for containers/AKS later)
+    app.MapGet("/healthz", () => Results.Ok("ok"));
+
+    await app.RunAsync("http://localhost:3004");
+}
