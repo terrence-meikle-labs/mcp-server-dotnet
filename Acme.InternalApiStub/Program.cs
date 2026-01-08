@@ -36,4 +36,4 @@ app.MapGet("/items/search", (string query, int page = 1, int pageSize = 10) =>
     return Results.Ok(new PagedResult<string>(items, page, pageSize, all.Count));
 });
 
-app.Run("http://localhost:5159");
+app.Run();
