@@ -1,0 +1,22 @@
+# Keep Docker build context small
+**/bin/
+**/obj/
+**/.vs/
+.vs/
+
+# Git
+.git/
+
+# User-local IDE artifacts
+*.user
+*.suo
+*.csproj.user
+*.rsuser
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker output folders (if present)
+publish/
+artifacts/

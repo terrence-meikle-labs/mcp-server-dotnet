@@ -11,26 +11,19 @@ var runHttp = args.Any(a => a.Equals("--http", StringComparison.OrdinalIgnoreCas
 
 if (!runHttp)
 {
-    // -------------------------
-    // STDIO MODE (Claude Desktop local)
-    // -------------------------
     var builder = Host.CreateApplicationBuilder(args);
 
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace); // stderr
 
-    // Options
     builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<InternalApiOptions>(builder.Configuration.GetSection("InternalApi"));
 
-    // Token source: env var for STDIO
     builder.Services.AddSingleton<IBearerTokenAccessor, EnvBearerTokenAccessor>();
 
-    // Auth + caller context
     builder.Services.AddSingleton<JwtTokenValidator>();
     builder.Services.AddSingleton<ICallerContextAccessor, JwtCallerContextAccessor>();
 
-    // HttpClient to internal API
     builder.Services.AddHttpClient<IInternalApiClient, InternalApiClient>((sp, http) =>
     {
         var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<InternalApiOptions>>().Value;
@@ -38,7 +31,6 @@ if (!runHttp)
         http.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
     });
 
-    // MCP server over STDIO
     builder.Services
         .AddMcpServer()
         .WithStdioServerTransport()
@@ -48,29 +40,21 @@ if (!runHttp)
 }
 else
 {
-    // -------------------------
-    // HTTP MODE (local now, container/AKS later)
-    // -------------------------
     var builder = WebApplication.CreateBuilder(args);
 
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole(); // normal web logging is fine
 
-    // Options
     builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<InternalApiOptions>(builder.Configuration.GetSection("InternalApi"));
 
-    // Needed to read headers in services
     builder.Services.AddHttpContextAccessor();
 
-    // Token source: Authorization header
     builder.Services.AddSingleton<IBearerTokenAccessor, HttpHeaderBearerTokenAccessor>();
 
-    // Auth + caller context
     builder.Services.AddSingleton<JwtTokenValidator>();
     builder.Services.AddSingleton<ICallerContextAccessor, JwtCallerContextAccessor>();
 
-    // HttpClient to internal API
     builder.Services.AddHttpClient<IInternalApiClient, InternalApiClient>((sp, http) =>
     {
         var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<InternalApiOptions>>().Value;
@@ -78,7 +62,6 @@ else
         http.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
     });
 
-    // MCP server over HTTP
     builder.Services
         .AddMcpServer()
         .WithHttpTransport()
@@ -109,13 +92,10 @@ else
         }
     });
 
-    // Map MCP endpoint at /mcp
     app.MapMcp("/mcp");
 
     app.MapGet("/healthz", () => Results.Ok("ok"));
 
-    // In containers, bind via ASPNETCORE_URLS (e.g. http://0.0.0.0:3004).
-    // For local runs, default to localhost:3004.
     var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
     await app.RunAsync(string.IsNullOrWhiteSpace(urls) ? "http://localhost:3004" : null);
 }
