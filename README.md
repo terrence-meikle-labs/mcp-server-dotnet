@@ -1,4 +1,4 @@
-# mcp-poc
+# mcp-server-dotnet
 
 Small .NET 8 proof-of-concept showing a Model Context Protocol (MCP) server that exposes “tools” over HTTP and forwards calls to an internal API stub. It’s containerized with Docker Compose.
 
