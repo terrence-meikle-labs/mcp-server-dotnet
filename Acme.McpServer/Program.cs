@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 var runHttp = args.Any(a => a.Equals("--http", StringComparison.OrdinalIgnoreCase));
 
@@ -85,11 +86,36 @@ else
 
     var app = builder.Build();
 
+    // The MCP HTTP endpoint expects JSON-RPC messages. If a client sends invalid JSON/JSON-RPC,
+    // the underlying handler may throw (which would otherwise surface as a 500).
+    // Translate those to a clean 400 response.
+    app.Use(async (context, next) =>
+    {
+        try
+        {
+            await next();
+        }
+        catch (JsonException) when (context.Request.Path.StartsWithSegments("/mcp"))
+        {
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
+            context.Response.Clear();
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            await context.Response.WriteAsync("{\"error\":\"Invalid JSON-RPC request\"}");
+        }
+    });
+
     // Map MCP endpoint at /mcp
     app.MapMcp("/mcp");
 
-    // Optional: health endpoint (useful for containers/AKS later)
     app.MapGet("/healthz", () => Results.Ok("ok"));
 
-    await app.RunAsync("http://localhost:3004");
+    // In containers, bind via ASPNETCORE_URLS (e.g. http://0.0.0.0:3004).
+    // For local runs, default to localhost:3004.
+    var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+    await app.RunAsync(string.IsNullOrWhiteSpace(urls) ? "http://localhost:3004" : null);
 }
